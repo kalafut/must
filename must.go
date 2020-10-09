@@ -1,6 +1,6 @@
 package must
 
-func PanicIfErr(err error) {
+func PanicErr(err error) {
 	if err != nil {
 		panic(err)
 	}
