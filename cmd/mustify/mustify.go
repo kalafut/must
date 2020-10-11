@@ -2,69 +2,123 @@ package main
 
 import (
 	"bytes"
-	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/printer"
-	"go/token"
+	"regexp"
 	"strings"
+	"text/template"
+
+	"github.com/kalafut/q"
 )
 
-var src = `package foo
+func mapCapture(re *regexp.Regexp, s string) map[string]string {
+	match := re.FindStringSubmatch(s)
+	if match == nil {
+		return nil
+	}
 
-import (
-	"fmt"
-	"time"
-)
-
-func (f int) bar(size int) (bool, error) {
-	fmt.Println(time.Now())
-	return true
-}`
-
-func printFuncDecl(decl ast.Decl) string {
-	var buf bytes.Buffer
-	printer.Fprint(&buf, token.NewFileSet(), decl)
-
-	out := buf.String()
-	head := strings.Split(out, "\n")[0]
-
-	return head
-}
-
-// removeError removes last return value if it is an error
-func removeError(fn *ast.FuncDecl) {
-	results := fn.Type.Results
-	lr := len(results.List)
-	if lr > 0 {
-		last := results.List[lr-1].Type.(*ast.Ident)
-		if last.Name == "error" {
-			results.List = results.List[:lr-1]
+	result := make(map[string]string)
+	for i, name := range re.SubexpNames() {
+		if i != 0 && name != "" {
+			result[name] = match[i]
 		}
 	}
+	return result
+}
+
+func splitIdentList(s string, last bool) (names []string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return
+	}
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		pieces := strings.Split(part, " ")
+		idx := 0
+		if last {
+			idx = len(pieces) - 1
+		}
+		names = append(names, pieces[idx])
+	}
+	return
+}
+
+func trimError(s []string) []string {
+	if len(s) > 0 && s[len(s)-1] == "error" {
+		s = s[:len(s)-1]
+	}
+
+	return s
+}
+
+func parse(s string) string {
+	pkg := "ioutil"
+	tmpl := `func {{.Recv}}{{.FuncName}}({{.Params}}){{.Results}} {
+	{{.CallResults}}{{.Pkg}}.{{.FuncName}}({{.ParamCall}}){{ .MustCall }}
+
+	return{{ .FunctionReturn }}
+}
+`
+	var t = template.Must(template.New("name").Parse(tmpl))
+
+	//re1 := regexp.MustCompile(`func +(\((?P<recv>[^)]+)\))? *(?P<funcname>\w+)\((?P<params>[^)]+)?\) *\(? *(?P<result>[^)]+)?`)
+	re1 := regexp.MustCompile(`func +(?P<recv>\([^)]+\) )? *(?P<funcname>\w+)\((?P<params>[^)]+)?\) *\(? *(?P<results>[^)]+)?`)
+
+	m := mapCapture(re1, s)
+
+	results := splitIdentList(m["results"], true)
+	var rr []string
+	q.Q(results)
+	for i, r := range results {
+		if r == "error" {
+			rr = append(rr, "err")
+		} else {
+			rr = append(rr, string(rune('a'+i)))
+		}
+	}
+	rrStr := strings.Join(rr, ", ")
+	if rrStr != "" {
+		rrStr += " := "
+	}
+
+	resultTrimmed := trimError(results)
+
+	mustStr := ""
+	if len(results) > 0 && results[len(results)-1] == "error" {
+		results = results[:len(results)-1]
+		mustStr = "\n\tmust.PanicErr(err)"
+	}
+
+	resultsStr := strings.Join(results, ", ")
+	if len(results) > 1 {
+		resultsStr = "(" + resultsStr + ")"
+	}
+
+	paramCallStr := strings.Join(splitIdentList(m["params"], false), ", ")
+
+	Data := map[string]string{
+		"Pkg":            pkg,
+		"Recv":           m["recv"],
+		"FuncName":       m["funcname"],
+		"Params":         m["params"],
+		"Results":        resultsStr,
+		"ParamCall":      paramCallStr,
+		"CallResults":    rrStr,
+		"MustCall":       mustStr,
+		"FunctionReturn": strings.Join(resultTrimmed, ", "),
+	}
+
+	var b bytes.Buffer
+	if err := t.Execute(&b, Data); err != nil {
+		panic(err)
+	}
+
+	return b.String()
 }
 
 func main() {
-	fset := token.NewFileSet() // positions are relative to fset
-
-	// Parse src but stop after processing the imports.
-	f, err := parser.ParseFile(fset, "", src, 0)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	// Print the imports from the file's AST.
-	for _, s := range f.Decls {
-		fn, ok := s.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-
-		//fmt.Println(fn.Name, fn.Type.Params.List[0].Names[0].Name)
-		removeError(fn)
-		fmt.Println(printFuncDecl(s))
-
-	}
-
+	parse(`func Bar(size, age int)`)
+	parse(`func Bar(size, age int) error`)
+	parse(`func Bar(size, age int) (foo int, baz int, e error)`)
+	parse(`func Bar() error`)
+	parse(`func (p obj) Bar(size, age int) error`)
+	parse(`func (re *Regexp) FindAllSubmatchIndex(b []byte, n int) (blah [][]int, err error)`)
 }
