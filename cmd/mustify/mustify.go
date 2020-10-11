@@ -25,8 +25,14 @@ func splitNames(s string) []string {
 	return splitList(s, false)
 }
 
-func splitTypes(s string) []string {
-	return splitList(s, true)
+func splitTypes(s string) ([]string, bool) {
+	types := splitList(s, true)
+	hasErr := (len(types) > 0) && types[len(types)-1] == "error"
+	if hasErr {
+		types = types[:len(types)-1]
+	}
+
+	return types, hasErr
 }
 
 func splitList(s string, last bool) []string {
@@ -63,52 +69,35 @@ func transposeRecv(s, pkg string) string {
 	return fmt.Sprintf("(%s%s.%s)(%s)", ptr, pkg, typ, name)
 }
 
-func trimError(s []string) []string {
-	if len(s) > 0 && s[len(s)-1] == "error" {
-		s = s[:len(s)-1]
-	}
-
-	return s
-}
-
 func parse(pkg, s string) string {
-	var out string
-
 	re := regexp.MustCompile(`func +(?P<recv>\([^)]+\) )? *(?P<funcname>\w+)\((?P<funcparams>[^)]+)?\) *\(? *(?P<funcresult>[^)]+)?`)
 	m := mapCapture(re, s)
 
-	out += "func "
-	out += m["recv"]
-	out += m["funcname"]
-	out += "(" + m["funcparams"] + ")"
+	out := "func " + m["recv"] + m["funcname"] + "(" + m["funcparams"] + ")"
 
-	r3 := trimError(splitTypes(m["funcresult"]))
-	r3Str := strings.Join(r3, ", ")
-	if len(r3) > 1 {
+	resultTypes, hasErr := splitTypes(m["funcresult"])
+	r3Str := strings.Join(resultTypes, ", ")
+	if len(resultTypes) > 1 {
 		r3Str = "(" + r3Str + ")"
 	}
 	if r3Str != "" {
-		r3Str = " " + r3Str
+		out += " " + r3Str
 	}
 
-	out += r3Str
 	out += " {\n\t"
 
 	var callVars []string
-	resultTypes := splitTypes(m["funcresult"])
-	hasErr := (len(resultTypes) > 0) && resultTypes[len(resultTypes)-1] == "error"
-	resultTypes = trimError(resultTypes)
 	for i := range resultTypes {
 		callVars = append(callVars, string(rune('a'+i)))
 	}
+
 	if hasErr {
 		callVars = append(callVars, "err")
 	}
-	rrStr := strings.Join(callVars, ", ")
-	out += rrStr
 
-	if rrStr != "" {
-		out += " := "
+	callReturnStr := strings.Join(callVars, ", ")
+	if callReturnStr != "" {
+		out += callReturnStr + " := "
 	}
 
 	callPrefix := pkg
@@ -126,13 +115,12 @@ func parse(pkg, s string) string {
 
 	out += "\n\n\treturn"
 
-	rrStr = strings.TrimSuffix(rrStr, "err")
-	rrStr = strings.TrimSuffix(rrStr, ", ")
-	if rrStr != "" {
-		rrStr = " " + rrStr
+	callReturnStr = strings.TrimSuffix(callReturnStr, "err")
+	callReturnStr = strings.TrimSuffix(callReturnStr, ", ")
+	if callReturnStr != "" {
+		out += " " + callReturnStr
 	}
 
-	out += rrStr
 	out += "\n}\n"
 
 	return out
