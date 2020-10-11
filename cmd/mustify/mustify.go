@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"regexp"
 	"strings"
 	"text/template"
@@ -53,6 +54,19 @@ func splitList(s string, last bool) []string {
 	return ret
 }
 
+func transposeRecv(s, pkg string) string {
+	s = s[1 : len(s)-2]
+	parts := strings.Split(s, " ")
+	name, typ := parts[0], parts[1]
+	ptr := ""
+	if strings.HasPrefix(typ, "*") {
+		ptr = "*"
+		typ = typ[1:]
+	}
+
+	return fmt.Sprintf("(%s%s.%s)(%s)", ptr, pkg, typ, name)
+}
+
 func trimError(s []string) []string {
 	if len(s) > 0 && s[len(s)-1] == "error" {
 		s = s[:len(s)-1]
@@ -63,7 +77,7 @@ func trimError(s []string) []string {
 
 func parse(pkg, s string) string {
 	tmpl := `func {{.Recv}}{{.FuncName}}({{.FuncParams}}){{.FuncResult}} {
-	{{.CallResults}}{{.Pkg}}.{{.FuncName}}({{.ParamCall}}){{ .MustCall }}
+	{{.CallResults}}{{.FuncCallPrefix}}.{{.FuncName}}({{.ParamCall}}){{ .MustCall }}
 
 	return{{ .FunctionReturn }}
 }
@@ -109,13 +123,18 @@ func parse(pkg, s string) string {
 
 	paramCallStr := strings.Join(splitNames(m["funcparams"]), ", ")
 
+	funcCallPrefix := pkg
+	if m["recv"] != "" {
+		funcCallPrefix = transposeRecv(m["recv"], pkg)
+	}
+
 	Data := map[string]string{
-		"Pkg":            pkg,
 		"Recv":           m["recv"],
 		"FuncName":       m["funcname"],
 		"FuncParams":     m["funcparams"],
 		"FuncResult":     resultsStr,
 		"ParamCall":      paramCallStr,
+		"FuncCallPrefix": funcCallPrefix,
 		"CallResults":    rrStr,
 		"MustCall":       mustStr,
 		"FunctionReturn": rrTrimmedStr,

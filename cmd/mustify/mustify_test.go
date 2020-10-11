@@ -59,16 +59,25 @@ func TestParse(t *testing.T) {
 `,
 		},
 		{
-			skip:  true,
+			pkg:   "os",
+			input: `func (f File) Readdirnames(n int) (names []string, err error)`,
+			output: `func (f File) Readdirnames(n int) []string {
+	a, err := (os.File)(f).Readdirnames(n)
+	must.PanicErr(err)
+
+	return a
+}
+`,
+		},
+		{
 			pkg:   "os",
 			input: `func (f *File) Readdirnames(n int) (names []string, err error)`,
 			output: `func (f *File) Readdirnames(n int) []string {
 	a, err := (*os.File)(f).Readdirnames(n)
 	must.PanicErr(err)
 
-	return ret
+	return a
 }
-
 `,
 		},
 	}
