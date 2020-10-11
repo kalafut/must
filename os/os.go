@@ -19,11 +19,11 @@ func Chmod(name string, mode FileMode) {
 	must.PanicErr(os.Chmod(name, os.FileMode(mode)))
 }
 
-func Chown(name string, uid, gid int) error {
+func Chown(name string, uid, gid int) {
 	must.PanicErr(os.Chown(name, uid, gid))
 }
 
-func Chtimes(name string, atime time.Time, mtime time.Time) error {
+func Chtimes(name string, atime time.Time, mtime time.Time) {
 	must.PanicErr(os.Chtimes(name, atime, mtime))
 }
 

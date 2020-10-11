@@ -7,6 +7,8 @@ import (
 	"text/template"
 )
 
+var re = regexp.MustCompile(`func +(?P<recv>\([^)]+\) )? *(?P<funcname>\w+)\((?P<funcparams>[^)]+)?\) *\(? *(?P<funcresult>[^)]+)?`)
+
 func mapCapture(re *regexp.Regexp, s string) map[string]string {
 	match := re.FindStringSubmatch(s)
 	if match == nil {
@@ -22,21 +24,33 @@ func mapCapture(re *regexp.Regexp, s string) map[string]string {
 	return result
 }
 
-func splitIdentList(s string, last bool) (names []string) {
+func splitNames(s string) []string {
+	return splitList(s, false)
+}
+
+func splitTypes(s string) []string {
+	return splitList(s, true)
+}
+
+func splitList(s string, last bool) []string {
+	var ret []string
+
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return
+		return nil
 	}
+
 	for _, part := range strings.Split(s, ",") {
 		part = strings.TrimSpace(part)
-		pieces := strings.Split(part, " ")
+		halves := strings.Split(part, " ")
 		idx := 0
 		if last {
-			idx = len(pieces) - 1
+			idx = len(halves) - 1
 		}
-		names = append(names, pieces[idx])
+		ret = append(ret, halves[idx])
 	}
-	return
+
+	return ret
 }
 
 func trimError(s []string) []string {
@@ -47,21 +61,18 @@ func trimError(s []string) []string {
 	return s
 }
 
-func parse(s string) string {
-	pkg := "ioutil"
-	tmpl := `func {{.Recv}}{{.FuncName}}({{.Params}}){{.Results}} {
+func parse(pkg, s string) string {
+	tmpl := `func {{.Recv}}{{.FuncName}}({{.FuncParams}}){{.FuncResult}} {
 	{{.CallResults}}{{.Pkg}}.{{.FuncName}}({{.ParamCall}}){{ .MustCall }}
 
 	return{{ .FunctionReturn }}
 }
 `
-	var t = template.Must(template.New("name").Parse(tmpl))
+	var t = template.Must(template.New("").Parse(tmpl))
 
-	re1 := regexp.MustCompile(`func +(?P<recv>\([^)]+\) )? *(?P<funcname>\w+)\((?P<params>[^)]+)?\) *\(? *(?P<results>[^)]+)?`)
+	m := mapCapture(re, s)
 
-	m := mapCapture(re1, s)
-
-	results := splitIdentList(m["results"], true)
+	results := splitTypes(m["funcresult"])
 	var rr []string
 
 	for i, r := range results {
@@ -96,14 +107,14 @@ func parse(s string) string {
 		resultsStr = " " + resultsStr
 	}
 
-	paramCallStr := strings.Join(splitIdentList(m["params"], false), ", ")
+	paramCallStr := strings.Join(splitNames(m["funcparams"]), ", ")
 
 	Data := map[string]string{
 		"Pkg":            pkg,
 		"Recv":           m["recv"],
 		"FuncName":       m["funcname"],
-		"Params":         m["params"],
-		"Results":        resultsStr,
+		"FuncParams":     m["funcparams"],
+		"FuncResult":     resultsStr,
 		"ParamCall":      paramCallStr,
 		"CallResults":    rrStr,
 		"MustCall":       mustStr,
@@ -119,10 +130,10 @@ func parse(s string) string {
 }
 
 func main() {
-	parse(`func Bar(size, age int)`)
-	parse(`func Bar(size, age int) error`)
-	parse(`func Bar(size, age int) (foo int, baz int, e error)`)
-	parse(`func Bar() error`)
-	parse(`func (p obj) Bar(size, age int) error`)
-	parse(`func (re *Regexp) FindAllSubmatchIndex(b []byte, n int) (blah [][]int, err error)`)
+	parse("ioutil", `func Bar(size, age int)`)
+	parse("ioutil", `func Bar(size, age int) error`)
+	parse("ioutil", `func Bar(size, age int) (foo int, baz int, e error)`)
+	parse("ioutil", `func Bar() error`)
+	parse("ioutil", `func (p obj) Bar(size, age int) error`)
+	parse("ioutil", `func (re *Regexp) FindAllSubmatchIndex(b []byte, n int) (blah [][]int, err error)`)
 }
