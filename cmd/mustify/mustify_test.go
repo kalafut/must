@@ -80,6 +80,17 @@ func TestParse(t *testing.T) {
 }
 `,
 		},
+		{
+			pkg:   "regexp",
+			input: `func (re *Regexp) FindAllSubmatchIndex(b []byte, n int) (blah [][]int, err error)`,
+			output: `func (re *Regexp) FindAllSubmatchIndex(b []byte, n int) [][]int {
+	a, err := (*regexp.Regexp)(re).FindAllSubmatchIndex(b, n)
+	must.PanicErr(err)
+
+	return a
+}
+`,
+		},
 	}
 
 	for _, test := range tests {

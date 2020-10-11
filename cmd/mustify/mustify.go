@@ -1,14 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"regexp"
 	"strings"
-	"text/template"
 )
-
-var re = regexp.MustCompile(`func +(?P<recv>\([^)]+\) )? *(?P<funcname>\w+)\((?P<funcparams>[^)]+)?\) *\(? *(?P<funcresult>[^)]+)?`)
 
 func mapCapture(re *regexp.Regexp, s string) map[string]string {
 	match := re.FindStringSubmatch(s)
@@ -76,83 +72,71 @@ func trimError(s []string) []string {
 }
 
 func parse(pkg, s string) string {
-	tmpl := `func {{.Recv}}{{.FuncName}}({{.FuncParams}}){{.FuncResult}} {
-	{{.CallResults}}{{.FuncCallPrefix}}.{{.FuncName}}({{.ParamCall}}){{ .MustCall }}
+	var out string
 
-	return{{ .FunctionReturn }}
-}
-`
-	var t = template.Must(template.New("").Parse(tmpl))
-
+	re := regexp.MustCompile(`func +(?P<recv>\([^)]+\) )? *(?P<funcname>\w+)\((?P<funcparams>[^)]+)?\) *\(? *(?P<funcresult>[^)]+)?`)
 	m := mapCapture(re, s)
 
-	results := splitTypes(m["funcresult"])
-	var rr []string
+	out += "func "
+	out += m["recv"]
+	out += m["funcname"]
+	out += "(" + m["funcparams"] + ")"
 
-	for i, r := range results {
-		if r == "error" {
-			rr = append(rr, "err")
-		} else {
-			rr = append(rr, string(rune('a'+i)))
-		}
+	r3 := trimError(splitTypes(m["funcresult"]))
+	r3Str := strings.Join(r3, ", ")
+	if len(r3) > 1 {
+		r3Str = "(" + r3Str + ")"
 	}
-	rrStr := strings.Join(rr, ", ")
-	rrTrimmedStr := strings.TrimSuffix(rrStr, ", err")
-	rrTrimmedStr = strings.TrimSuffix(rrTrimmedStr, "err")
-	if rrTrimmedStr != "" {
-		rrTrimmedStr = " " + rrTrimmedStr
+	if r3Str != "" {
+		r3Str = " " + r3Str
 	}
+
+	out += r3Str
+	out += " {\n\t"
+
+	var callVars []string
+	resultTypes := splitTypes(m["funcresult"])
+	hasErr := (len(resultTypes) > 0) && resultTypes[len(resultTypes)-1] == "error"
+	resultTypes = trimError(resultTypes)
+	for i := range resultTypes {
+		callVars = append(callVars, string(rune('a'+i)))
+	}
+	if hasErr {
+		callVars = append(callVars, "err")
+	}
+	rrStr := strings.Join(callVars, ", ")
+	out += rrStr
 
 	if rrStr != "" {
-		rrStr += " := "
+		out += " := "
 	}
 
-	mustStr := ""
-	if len(results) > 0 && results[len(results)-1] == "error" {
-		results = results[:len(results)-1]
-		mustStr = "\n\tmust.PanicErr(err)"
-	}
-
-	resultsStr := strings.Join(results, ", ")
-	if len(results) > 1 {
-		resultsStr = "(" + resultsStr + ")"
-	}
-	if resultsStr != "" {
-		resultsStr = " " + resultsStr
-	}
-
-	paramCallStr := strings.Join(splitNames(m["funcparams"]), ", ")
-
-	funcCallPrefix := pkg
+	callPrefix := pkg
 	if m["recv"] != "" {
-		funcCallPrefix = transposeRecv(m["recv"], pkg)
+		callPrefix = transposeRecv(m["recv"], pkg)
+	}
+	out += callPrefix
+
+	out += "." + m["funcname"]
+	out += "(" + strings.Join(splitNames(m["funcparams"]), ", ") + ")"
+
+	if hasErr {
+		out += "\n\tmust.PanicErr(err)"
 	}
 
-	Data := map[string]string{
-		"Recv":           m["recv"],
-		"FuncName":       m["funcname"],
-		"FuncParams":     m["funcparams"],
-		"FuncResult":     resultsStr,
-		"ParamCall":      paramCallStr,
-		"FuncCallPrefix": funcCallPrefix,
-		"CallResults":    rrStr,
-		"MustCall":       mustStr,
-		"FunctionReturn": rrTrimmedStr,
+	out += "\n\n\treturn"
+
+	rrStr = strings.TrimSuffix(rrStr, "err")
+	rrStr = strings.TrimSuffix(rrStr, ", ")
+	if rrStr != "" {
+		rrStr = " " + rrStr
 	}
 
-	var b bytes.Buffer
-	if err := t.Execute(&b, Data); err != nil {
-		panic(err)
-	}
+	out += rrStr
+	out += "\n}\n"
 
-	return b.String()
+	return out
 }
 
 func main() {
-	parse("ioutil", `func Bar(size, age int)`)
-	parse("ioutil", `func Bar(size, age int) error`)
-	parse("ioutil", `func Bar(size, age int) (foo int, baz int, e error)`)
-	parse("ioutil", `func Bar() error`)
-	parse("ioutil", `func (p obj) Bar(size, age int) error`)
-	parse("ioutil", `func (re *Regexp) FindAllSubmatchIndex(b []byte, n int) (blah [][]int, err error)`)
 }
