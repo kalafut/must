@@ -5,8 +5,6 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
-
-	"github.com/kalafut/q"
 )
 
 func mapCapture(re *regexp.Regexp, s string) map[string]string {
@@ -59,14 +57,13 @@ func parse(s string) string {
 `
 	var t = template.Must(template.New("name").Parse(tmpl))
 
-	//re1 := regexp.MustCompile(`func +(\((?P<recv>[^)]+)\))? *(?P<funcname>\w+)\((?P<params>[^)]+)?\) *\(? *(?P<result>[^)]+)?`)
 	re1 := regexp.MustCompile(`func +(?P<recv>\([^)]+\) )? *(?P<funcname>\w+)\((?P<params>[^)]+)?\) *\(? *(?P<results>[^)]+)?`)
 
 	m := mapCapture(re1, s)
 
 	results := splitIdentList(m["results"], true)
 	var rr []string
-	q.Q(results)
+
 	for i, r := range results {
 		if r == "error" {
 			rr = append(rr, "err")
@@ -75,11 +72,15 @@ func parse(s string) string {
 		}
 	}
 	rrStr := strings.Join(rr, ", ")
+	rrTrimmedStr := strings.TrimSuffix(rrStr, ", err")
+	rrTrimmedStr = strings.TrimSuffix(rrTrimmedStr, "err")
+	if rrTrimmedStr != "" {
+		rrTrimmedStr = " " + rrTrimmedStr
+	}
+
 	if rrStr != "" {
 		rrStr += " := "
 	}
-
-	resultTrimmed := trimError(results)
 
 	mustStr := ""
 	if len(results) > 0 && results[len(results)-1] == "error" {
@@ -90,6 +91,9 @@ func parse(s string) string {
 	resultsStr := strings.Join(results, ", ")
 	if len(results) > 1 {
 		resultsStr = "(" + resultsStr + ")"
+	}
+	if resultsStr != "" {
+		resultsStr = " " + resultsStr
 	}
 
 	paramCallStr := strings.Join(splitIdentList(m["params"], false), ", ")
@@ -103,7 +107,7 @@ func parse(s string) string {
 		"ParamCall":      paramCallStr,
 		"CallResults":    rrStr,
 		"MustCall":       mustStr,
-		"FunctionReturn": strings.Join(resultTrimmed, ", "),
+		"FunctionReturn": rrTrimmedStr,
 	}
 
 	var b bytes.Buffer

@@ -32,6 +32,16 @@ func TestParse(t *testing.T) {
 }
 `,
 		},
+		{
+			input: `func Bar(size, age int) (foo int, baz int, e error)`,
+			output: `func Bar(size, age int) (int, int) {
+	a, b, err := ioutil.Bar(size, age)
+	must.PanicErr(err)
+
+	return a, b
+}
+`,
+		},
 	}
 
 	for _, test := range tests {
